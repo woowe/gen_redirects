@@ -1,0 +1,10 @@
+[package]
+name = "gen_redirects"
+version = "0.1.0"
+authors = ["jason"]
+
+[dependencies]
+curl = "0.2.11"
+html5ever = "0.2.6"
+tendril = "0.1.6"
+string_cache = "0.1.13"
