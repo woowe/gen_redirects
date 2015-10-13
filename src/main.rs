@@ -94,6 +94,18 @@ impl GetLinks {
     pub fn get_pwd(&self) -> String { return self.pwd.clone(); }
 }
 
+fn avg_key_match(i: &str, j: &str) -> f64 {
+    let keywords: Vec<&str> = j.split('/').filter(|&x| x != "/").collect();
+    let mut cnt: i32 = 0;
+    for keyword in keywords.iter() {
+        if i.contains(keyword) {
+            cnt += 1;
+        }
+    }
+
+    (cnt as f64 / keywords.len() as f64)
+}
+
 fn find_match(u1: &str, u2: &str, url1: &StrTendril, links: Vec<StrTendril>) -> StrTendril {
     let u: &str = if url1.contains(u1) {
         &url1[u1.len()..]
@@ -108,9 +120,7 @@ fn find_match(u1: &str, u2: &str, url1: &StrTendril, links: Vec<StrTendril>) -> 
         &links[0]
     };
 
-    println!("xxxxxxxxxxxxxx {} ----- {}", u, l);
-
-    let mut edits = edit_distance(u, l);
+    let mut edits = avg_key_match(u, l);
 
     for link in links.iter().skip(1) {
         let l: &str = if link.contains(u2) {
@@ -119,13 +129,13 @@ fn find_match(u1: &str, u2: &str, url1: &StrTendril, links: Vec<StrTendril>) -> 
             link 
         };
 
-        let e = edit_distance(u, l); 
-        if e < edits { 
+        let e = avg_key_match(u, l); 
+        if e > edits { 
             edits = e;
             match_tendril = link.clone();
         }
     }
-    println!("{} == {}", edits, match_tendril);
+    println!("\n\n{} == {}", edits, match_tendril);
     match_tendril
 }
 
