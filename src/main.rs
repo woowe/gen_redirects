@@ -39,9 +39,27 @@ fn domain_permutations(url: &str) -> Vec<String> {
 }
 
 fn is_internal_link(link: &str, domain_permutations: &Vec<String>) -> bool {
-    for domain in domain_permutations.iter() {
-        if &link[0.. domain.len()] == domain {
+    if link.is_empty() {
+        return false;
+    }
+
+    let domain_match = Regex::new(r"^https?://").unwrap();
+
+    if !domain_match.is_match(link) {
+        let re = Regex::new(r"^/|^[a-zA-Z0-9]").unwrap();
+        if re.is_match(link) && !Regex::new("^javascript").unwrap().is_match(link) {
+            println!("found match thing: {}", link);
             return true;
+        }
+
+    } else {
+        println!("has a link");
+        for domain in domain_permutations.iter() {
+            if link.contains(domain) {
+                if &link[0.. domain.len()] == domain {
+                    return true;
+                }
+            }
         }
     }
     false
@@ -81,25 +99,19 @@ impl GetLinks {
             Element(ref name, _, ref attrs) => {
                 assert!(name.ns == ns!(html));
                 if name.local.as_slice() == "a" {
-                    let mut href_attr = attrs.iter().filter(|&x| x.name.local.as_slice() == "href").take(1);
-                    match href_attr.next() {
-                        Some(attr) => {
-                            assert!(attr.name.ns == ns!(""));
-                            let href_val = attr.value.clone();
-                            if !href_val.is_empty()  {
-                                let first = &href_val[0..1];
-                                if first == "/" || is_internal_link(&href_val, &self.urls) {
-                                    self.links.push(attr.value.clone());
-                                }
+                    let mut href_attr = attrs.iter().filter(|&x| x.name.local.as_slice() == "href").collect::<Vec<_>>();
+                    if !href_attr.is_empty() {
+                        let link = href_attr[0].value.clone();
+                        println!("{} {:#?}", name.local, link);
+                        if !link.is_empty()  {
+                            if is_internal_link(&link, &self.urls) {
+                                self.links.push(link.clone());
                             }
-                        },
-                        None => {
-                            println!("Something went wrong with the attrs next stuff");
                         }
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => { }
         }
 
         self.links.sort();
@@ -117,55 +129,91 @@ impl GetLinks {
 }
 
 fn avg_key_match(i: &str, j: &str) -> f64 {
-    let re = Regex::new(r"i[a-zA-Z0-9]+").unwrap();
+    let re = match Regex::new(r"[a-zA-Z0-9]+") {
+        Ok(r) => r,
+        Err(e) => panic!("Unable to create regex, {}", e)
+    };
 
     // get the keywords in the url based on the regex
     let i_keywords: Vec<&str> = re.find_iter(i).map(|(t, f)| &i[t..f]).collect();
     let j_keywords: Vec<&str> = re.find_iter(j).map(|(t, f)| &j[t..f]).collect();
+
+    if i_keywords.is_empty() || j_keywords.is_empty() {
+        return 0f64;
+    }
 
     // vars for future use
     let mut cnt: f64 = 0f64;
     let i_len: f64 = i_keywords.len() as f64;
     let j_len: f64 = j_keywords.len() as f64;
 
+    let mut matches: Vec<&str> = Vec::new();
+
     for i_key in i_keywords.iter() {
         for j_key in j_keywords.iter() {
             if j_key == i_key {
                 cnt += 1f64;
+                matches.push(j_key);
             }
         }
     }
 
+    /*
+    println!("{:?}", matches);
+    println!("({} / {}) * ({} / {}): {}", cnt, i_len, cnt, j_len, (cnt / i_len) * (cnt / j_len));
+    */
     (cnt / i_len) * (cnt / j_len)
 }
 
 fn get_route<'a>(link: &'a str, domain_permutations: &Vec<String>) -> Option<&'a str> {
+    let mut end = link.len();
+
+    let re = Regex::new(r"html|htm|php|asp").unwrap();
+    if let Some((to, _)) = re.find(link) {
+        end = to;
+    }
     for domain in domain_permutations.iter() {
         if link.contains(domain) {
             if &link[0.. domain.len()] == &domain[..] {
-                return Some(&link[domain.len() ..]);
+                return Some(&link[domain.len() .. end]);
             }
         }
+    }
+
+    if Regex::new("^/|^[a-zA-Z0-9]").unwrap().is_match(link) {
+        return Some(&link[.. end]);
     }
     None
 }
 
-fn find_match(u1: &str, u2: &str, url1: &StrTendril, links: Vec<StrTendril>) -> StrTendril {
-    let u: &str = get_route(&url1, &domain_permutations(u1)).unwrap();
+fn find_match(u1: &str, u2: &str, url1: &StrTendril, links: Vec<StrTendril>) -> (f64, StrTendril) {
+    let u: &str = match get_route(&url1, &domain_permutations(u1)) {
+        Some(route) => route,
+        None => panic!("Parsing route error: {}", url1)
+    };
+
     let mut match_tendril = links[0].clone();
     let u2_permutations = domain_permutations(&u2);
-    let l: &str = get_route(&links[0], &u2_permutations).unwrap();
+    let l: &str = match get_route(&links[0], &u2_permutations) {
+        Some(route) => route,
+        None => panic!("Parsing route error: {}", links[0])
+    };
+
     let mut edits = avg_key_match(u, l);
 
     for link in links.iter().skip(1) {
-        let l: &str = get_route(&l, &u2_permutations).unwrap();
+        let l: &str = match get_route(&link, &u2_permutations) {
+            Some(route) => route,
+            None => panic!("Parsing route error: {}", link)
+        };
+
         let e = avg_key_match(u, l);
         if e > edits {
             edits = e;
             match_tendril = (*link).clone().to_tendril();
         }
     }
-    match_tendril
+    (edits, match_tendril)
 }
 
 fn main() {
@@ -207,7 +255,8 @@ fn main() {
     links_2.find_links(dom_2.document);
     println!("{:#?}", links_2.get_links());
 
+    
     for link in links_1.get_links().iter() {
-        println!("best match: {} ~~ {}", link, find_match(url_1, url_2, link, links_2.get_links()));
+        println!("best match: {} ~~ {:#?}", link, find_match(url_1, url_2, link, links_2.get_links()));
     }
 }
